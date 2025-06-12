@@ -9,7 +9,6 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration that monit
 - **EOL Status Monitoring:** Automatically checks product support and lifecycle status.
 - **Vendor Mapping:** Uses product-specific URIs to fetch data from `endoflife.date`.
 - **Multiple Sensors:** Generates entities for key support attributes like EOL, LTS, Discontinued, and Maintained.
-- **Notifications:** Optionally triggers persistent notifications for unreachable or invalid URIs.
 
 ---
 
