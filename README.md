@@ -23,7 +23,7 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration that monit
 
 ## ⚙️ Configuration
 
-Once added via the UI, provide the full product URI from [endoflife.date's API](https://endoflife.date/docs/api).
+Once added via the UI, provide the full product URI from [endoflife.date's API](https://endoflife.date/docs/api), to create your device.
 
 ### Example Input:
 https://endoflife.date/api/v1/products/iPad/releases/11
