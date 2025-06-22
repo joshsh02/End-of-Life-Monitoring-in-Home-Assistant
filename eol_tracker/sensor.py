@@ -1,65 +1,43 @@
 import logging
 from datetime import timedelta
-
 import aiohttp
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_ON, STATE_OFF
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from eoltracker import EOLClient
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None):
     user_device_input = entry.data.get("input_device")
+    session = async_get_clientsession(hass)
+    client = EOLClient(session)
 
     async def async_fetch_data():
+        try:
+            release_data = await client.fetch_release_data(user_device_input)
+            product_data = await client.fetch_product_data(user_device_input)
 
-        # testing line
-        _LOGGER.info("Fetching data from %s", user_device_input)
+            return {
+                "release": release_data,
+                "product": product_data
+            }
 
-        async with aiohttp.ClientSession() as session:
-
-            # to parse url to GET product name
-            base_uri = "/".join(user_device_input.strip("/").split("/")[:-2])
-
-            # GET release-specific data
-            async with session.get(user_device_input) as release_resp:
-                if release_resp.status != 200:
-                    hass.async_create_task(
-                        hass.services.async_call(
-                            "persistent_notification",
-                            "create",
-                            {
-                                "title": "EOL Tracker URI Error",
-                                "message": f"URI '{user_device_input}' not found or returned an error."
-                            }
-                        )
-                    )
-                    return None
-
-                release_data = await release_resp.json()
-
-            # GET product-specific data (ie, specifically iphone family)
-            async with session.get(base_uri) as product_resp:
-                if product_resp.status != 200:
-                    hass.async_create_task(
-                        hass.services.async_call(
-                            "persistent_notification",
-                            "create",
-                            {
-                                "title": "EOL Tracker URI Error",
-                                "message": f"URI '{user_device_input}' not found or returned an error."
-                            }
-                        )
-                    )
-                    return None
-
-                product_data = await product_resp.json()
-
-                return {
-                    "release": release_data.get("result", {}),
-                    "product": product_data.get("result", {}),
-                }
+        except Exception as e:
+            _LOGGER.error(f"Failed to fetch data from {user_device_input}: {e}")
+            hass.async_create_task(
+                hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": "EOL Tracker Error",
+                        "message": f"Error fetching data for URI '{user_device_input}': {e}",
+                    },
+                )
+            )
+            return None
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -70,16 +48,18 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
     )
 
     await coordinator.async_config_entry_first_refresh()
+
+    if not coordinator.data:
+        _LOGGER.error("No data was received: aborting entity creation")
+        return False
+
     data = coordinator.data
     release_info = data.get("release", {})
     product_info = data.get("product", {})
 
-    if data is None:
-        return
 
     label = release_info.get("label", "Unknown")
     product_name = product_info.get("label", "Unknown")
-
     entry_id = entry.entry_id
 
     entities = [
