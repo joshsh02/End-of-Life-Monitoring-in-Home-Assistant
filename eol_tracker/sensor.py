@@ -1,9 +1,11 @@
 import logging
 from datetime import timedelta
-import aiohttp
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_ON, STATE_OFF
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    CoordinatorEntity,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from eoltracker import EOLClient
 
@@ -20,10 +22,7 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
             release_data = await client.fetch_release_data(user_device_input)
             product_data = await client.fetch_product_data(user_device_input)
 
-            return {
-                "release": release_data,
-                "product": product_data
-            }
+            return {"release": release_data, "product": product_data}
 
         except Exception as e:
             _LOGGER.error(f"Failed to fetch data from {user_device_input}: {e}")
@@ -43,8 +42,8 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
         hass,
         _LOGGER,
         name="eol_tracker",
-        update_method = async_fetch_data,
-        update_interval = timedelta(seconds = 300),
+        update_method=async_fetch_data,
+        update_interval=timedelta(seconds=300),
     )
 
     await coordinator.async_config_entry_first_refresh()
@@ -57,20 +56,48 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
     release_info = data.get("release", {})
     product_info = data.get("product", {})
 
-
     label = release_info.get("label", "Unknown")
     product_name = product_info.get("label", "Unknown")
     entry_id = entry.entry_id
 
     entities = [
         EolSensor(coordinator, product_name, label, entry_id),
-        BooleanEolSensor(coordinator, product_name, label, "LTS", release_info.get("isLts", False), entry_id),
-        BooleanEolSensor(coordinator, product_name, label, "EOL", release_info.get("isEol", False), entry_id),
-        BooleanEolSensor(coordinator, product_name, label, "Discontinued", release_info.get("isDiscontinued", False), entry_id),
-        BooleanEolSensor(coordinator, product_name, label, "Maintained", release_info.get("isMaintained", True), entry_id),
+        BooleanEolSensor(
+            coordinator,
+            product_name,
+            label,
+            "LTS",
+            release_info.get("isLts", False),
+            entry_id,
+        ),
+        BooleanEolSensor(
+            coordinator,
+            product_name,
+            label,
+            "EOL",
+            release_info.get("isEol", False),
+            entry_id,
+        ),
+        BooleanEolSensor(
+            coordinator,
+            product_name,
+            label,
+            "Discontinued",
+            release_info.get("isDiscontinued", False),
+            entry_id,
+        ),
+        BooleanEolSensor(
+            coordinator,
+            product_name,
+            label,
+            "Maintained",
+            release_info.get("isMaintained", True),
+            entry_id,
+        ),
     ]
 
     async_add_entities(entities)
+
 
 class EolSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, product, entry_id):
@@ -127,7 +154,9 @@ class BooleanEolSensor(CoordinatorEntity, SensorEntity):
         self._state = state
         self._value = value
         self._attr_name = f"{state}"
-        self._attr_unique_id = f"{entry_id}_{product_name}_{product}_{state}".lower().replace(" ", "_")
+        self._attr_unique_id = (
+            f"{entry_id}_{product_name}_{product}_{state}".lower().replace(" ", "_")
+        )
 
         self._attr_icon = "mdi:check-circle" if value else "mdi:close-circle"
         self._attr_native_value = "Yes" if value else "No"
