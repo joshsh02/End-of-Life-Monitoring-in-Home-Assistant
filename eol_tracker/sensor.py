@@ -1,31 +1,45 @@
-import logging
+"""EOL Tracker sensor integration for Home Assistant."""
+
+from __future__ import annotations
+
 from datetime import timedelta
-from homeassistant.components.sensor import SensorEntity
-from homeassistant.const import STATE_ON, STATE_OFF
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-    CoordinatorEntity,
-)
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import logging
+from typing import Any, cast
+
+from aiohttp import ClientError
 from eoltracker import EOLClient
+
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import DeviceEntryType
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+    discovery_info: Any = None,
+) -> bool:
+    """Set up EOL Tracker sensors from a config entry."""
     user_device_input = entry.data.get("input_device")
     session = async_get_clientsession(hass)
     client = EOLClient(session)
 
-    async def async_fetch_data():
+    async def async_fetch_data() -> dict[str, Any]:
         try:
             release_data = await client.fetch_release_data(user_device_input)
             product_data = await client.fetch_product_data(user_device_input)
-
-            return {"release": release_data, "product": product_data}
-
-        except Exception as e:
-            _LOGGER.error(f"Failed to fetch data from {user_device_input}: {e}")
+        except ClientError as e:
+            _LOGGER.error("Failed to fetch data from %s: %s", user_device_input, e)
             hass.async_create_task(
                 hass.services.async_call(
                     "persistent_notification",
@@ -36,9 +50,10 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
                     },
                 )
             )
-            return None
+            return {}
+        return {"release": release_data, "product": product_data}
 
-    coordinator = DataUpdateCoordinator(
+    coordinator = DataUpdateCoordinator[dict[str, Any]](
         hass,
         _LOGGER,
         name="eol_tracker",
@@ -60,14 +75,14 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
     product_name = product_info.get("label", "Unknown")
     entry_id = entry.entry_id
 
-    entities = [
+    entities: list[SensorEntity] = [
         EolSensor(coordinator, product_name, label, entry_id),
         BooleanEolSensor(
             coordinator,
             product_name,
             label,
             "LTS",
-            release_info.get("isLts", False),
+            cast(bool, release_info.get("isLts", False)),
             entry_id,
         ),
         BooleanEolSensor(
@@ -75,7 +90,7 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
             product_name,
             label,
             "EOL",
-            release_info.get("isEol", False),
+            cast(bool, release_info.get("isEol", False)),
             entry_id,
         ),
         BooleanEolSensor(
@@ -83,7 +98,7 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
             product_name,
             label,
             "Discontinued",
-            release_info.get("isDiscontinued", False),
+            cast(bool, release_info.get("isDiscontinued", False)),
             entry_id,
         ),
         BooleanEolSensor(
@@ -91,19 +106,29 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
             product_name,
             label,
             "Maintained",
-            release_info.get("isMaintained", True),
+            cast(bool, release_info.get("isMaintained", True)),
             entry_id,
         ),
     ]
 
     async_add_entities(entities)
+    return True
 
 
-class EolSensor(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator, name, product, entry_id):
+class EolSensor(CoordinatorEntity[DataUpdateCoordinator[dict[str, Any]]], SensorEntity):
+    """Representation of an EOL Tracker sensor."""
+
+    def __init__(
+        self,
+        coordinator: DataUpdateCoordinator[dict[str, Any]],
+        name: str,
+        product: str,
+        entry_id: str,
+    ) -> None:
+        """Initialize the EolSensor."""
         super().__init__(coordinator)
         self._product = f"{name} {product}"
-        self._attr_name = f"{name} {product}"
+        self._attr_name = self._product
         self._attr_unique_id = f"{entry_id}_{product}".lower().replace(" ", "_")
         self._entry_id = entry_id
 
@@ -112,23 +137,25 @@ class EolSensor(CoordinatorEntity, SensorEntity):
             "name": f"{self._product} EOL",
             "manufacturer": "endoflife.date",
             "model": self._product,
-            "entry_type": "service",
+            "entry_type": DeviceEntryType.SERVICE,
         }
 
     @property
-    def state(self):
-        return self.coordinator.data.get("release", {}).get("releaseDate")
+    def device_class(self) -> SensorDeviceClass | None:
+        """Return the device class."""
+        return SensorDeviceClass.TIMESTAMP
 
     @property
-    def device_class(self):
-        return "timestamp"
+    def entity_picture(self) -> str | None:
+        """Return the entity picture URL, if available."""
+        return cast(
+            str | None,
+            self.coordinator.data.get("product", {}).get("links", {}).get("icon"),
+        )
 
     @property
-    def entity_picture(self):
-        return self.coordinator.data.get("product", {}).get("links", {}).get("icon")
-
-    @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
         release_info = self.coordinator.data.get("release", {})
         product_info = self.coordinator.data.get("product", {})
         custom_attr = release_info.get("custom", {})
@@ -147,13 +174,26 @@ class EolSensor(CoordinatorEntity, SensorEntity):
         }
 
 
-class BooleanEolSensor(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator, product_name, product, state, value, entry_id):
+class BooleanEolSensor(
+    CoordinatorEntity[DataUpdateCoordinator[dict[str, Any]]], SensorEntity
+):
+    """Boolean attribute sensor for EOL Tracker."""
+
+    def __init__(
+        self,
+        coordinator: DataUpdateCoordinator[dict[str, Any]],
+        product_name: str,
+        product: str,
+        state: str,
+        value: bool,
+        entry_id: str,
+    ) -> None:
+        """Initialize the BooleanEolSensor."""
         super().__init__(coordinator)
         self._product = f"{product_name} {product}"
         self._state = state
         self._value = value
-        self._attr_name = f"{state}"
+        self._attr_name = state
         self._attr_unique_id = (
             f"{entry_id}_{product_name}_{product}_{state}".lower().replace(" ", "_")
         )
@@ -166,17 +206,15 @@ class BooleanEolSensor(CoordinatorEntity, SensorEntity):
             "name": f"{self._product} EOL",
             "manufacturer": "endoflife.date",
             "model": self._product,
-            "entry_type": "service",
+            "entry_type": DeviceEntryType.SERVICE,
         }
 
     @property
-    def state(self):
-        return self._attr_native_value
+    def device_class(self) -> SensorDeviceClass | None:
+        """Return the device class, if any."""
+        return None
 
     @property
-    def device_class(self):
-        return "running"
-
-    @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
         return {"name": self._attr_name}

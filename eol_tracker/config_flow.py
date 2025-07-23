@@ -1,7 +1,13 @@
-import voluptuous as vol
-from homeassistant import config_entries
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+"""Config flow for the EOL Tracker integration."""
+
+from typing import Any
+
 from eoltracker import EOLClient
+import voluptuous as vol
+
+from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from . import DOMAIN
 
@@ -11,18 +17,24 @@ CONF_NAME = "custom_device_name"
 
 API_BASE = "https://endoflife.date/api/v1"
 
+"""Config flow for the EOL Tracker integration."""
+
 
 class EolConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for the EOL Tracker integration."""
 
-    def __init__(self):
-        self.products = []
-        self.device_label = None
-        self.device_name = None
-        self.custom_name = None
-        self.label_to_release_name = {}
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self.products: list[dict[str, Any]] = []
+        self.device_label: str | None = None
+        self.device_name: str | None = None
+        self.custom_name: str | None = None
+        self.label_to_release_name: dict[str, str] = {}
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the initial step where user selects a device."""
         if not self.products:
             session = async_get_clientsession(self.hass)
             client = EOLClient(session)
@@ -46,7 +58,10 @@ class EolConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    async def async_step_version(self, user_input=None):
+    async def async_step_version(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the version step where user selects device version."""
         if not self.device_name:
             return self.async_abort(reason="missing_device")
 
@@ -93,5 +108,5 @@ class EolConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_NAME, default=""): str,
                 }
             ),
-            description_placeholders={"device": self.device_label},
+            description_placeholders={"device": self.device_label or ""},
         )
